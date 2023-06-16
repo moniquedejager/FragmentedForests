@@ -18,7 +18,12 @@ library(meteR) # rominger and merow, 2016
 library(ggpubr)
 
 # function to plot estimated rank abundance distribution:
-plot_est_RAI <- function(n) {
+est_RAI <- function(n, outputtype) {
+  # n is the abundance vector (number of individuals per species)
+  # outputtype: 'fit' provides the goodness-of-fit;
+  #             'plot' provides the SAD figure;
+  #             'estimates' provides the METE estimates of the abundances
+  
   df2 <- data.frame(spp = 1:length(n), 
                     abund = sort(n, decreasing = T),
                     rank = 1:length(n)) 
@@ -36,51 +41,26 @@ plot_est_RAI <- function(n) {
   df2$estRank <- 1:length(n)
   df2$estAbund <- n2
 
-  p2 <- ggplot(df2, aes(x=rank, y=abund )) +
-    geom_line(aes(x=estRank, y=estAbund), color='mediumseagreen', linewidth=1.1) +
-    geom_point() + 
-    scale_y_continuous(trans='log10') + 
-    xlab('Rank') + 
-    ylab('Relative abundance')
-  p2
-  
   df2$dif <- df2$abund[order(df2$rank)] - df2$estAbund[order(df2$estRank)]
-  df2$direction <- df2$dif > 0
-  p3 <- ggplot(df2, aes(x=rank[order(rank)], 
-                        y=abs(dif),
-                        color=direction)) + 
-    geom_point() + 
-    #scale_y_continuous(trans='log10') + 
-    xlab('Rank') + 
-    ylab(expression(paste(Delta, 'Relative aAbundance', sep=' '))) + 
-    scale_y_continuous(trans='log10') + 
-    theme(legend.position = 'none')
   
-  #print(ggarrange(p2, p3, nrow=1, ncol=2))
-  print(p2)
-  return(mean(df2$dif^2))
-}
-
-# Model without space and speciation:
-i <- 1:200 # 200 species, with 1 individual per species
-for (j in 1:10000) {
-  i <- c(i, sample(i, 1))
-}
-n <- tapply(i, as.factor(i), length)
-plot_est_RAI(n)
-
-# Model without space, with speciation:
-spec_rate <- 0.1 # speciation rate
-i <- 1:100 # 100 species, with 1 individual per species
-for (j in 1:10000) {
-  if (runif(1, 0, 1) <= spec_rate){
-    i <- c(i, max(i) + 1)
-  } else {
-    i <- c(i, sample(i, 1))
+  if (outputtype == 'plot'){
+    p2 <- ggplot(df2, aes(x=rank, y=abund )) +
+      geom_line(aes(x=estRank, y=estAbund), color='mediumseagreen', linewidth=1.1) +
+      geom_point() + 
+      scale_y_continuous(trans='log10') + 
+      xlab('Rank') + 
+      ylab('Abundance')
+    print(p2)
+  }
+  
+  if (outputtype == 'fit'){
+    return(sum(df2$dif^2))
+  }
+  
+  if (outputtype == 'estimates'){
+    return(df2$estAbund)
   }
 }
-n <- tapply(i, as.factor(i), length)
-plot_est_RAI(n)
 
 # the higher the speciation rate, the better the fit! 
 # the number of species to start with, also changes the fit...
@@ -95,97 +75,163 @@ plot_est_RAI(n)
 # 1000 individuals at the site. From there on, a random individual gets
 # replaced by a random seedling. 
 
-# to do: spec_rate omschrijven naar een dispersal parameter
+# to do: 
 # goed opschrijven wat je allemaal gedaan hebt, inclusief alle assumpties
 # Verschillende beginwaardes proberen van dispersal parameter, 
 # in combinatie met verschillende veranderingen in deze parameter 
 # (bijvoorbeeld toenemende fragmentatie, of verschillende fragmentatieniveaus)
 
-spec_rate <- 50
-i         <- 1
-for (j in 2:1000){
-  if (runif(1, 0, 1) <= spec_rate/length(i)){
-    i <- c(i, max(i) + 1)
+# Parameters:
+tau    <- 1000 # number of replacements per generation
+P_m1   <- 0.1 # Initial probability of dispersal from metacommunity 
+P_m2   <- 0    # Pm after fragmentation
+S_meta <- 1000 # number of species in the metacommunity
+X      <- 1000 # number of cells in the local community that 
+               #can each hold one individual
+
+i  <- 1
+for (j in 2:X){
+  if (runif(1, 0, 1) <= P_m1^(length(i)/X)){
+    i <- c(i, sample(1:S_meta, 1))
   } else {
     i <- c(i, sample(i, 1))
   }
 }
 
-n <- tapply(i, as.factor(i), length)
-n <- sort(n, decreasing = T)
-n <- c(n, rep(0, 1000 - length(n)))
-df <- data.frame(generation = 0, abundance = n, rank = 1:length(n))
+n  <- tapply(i, as.factor(i), length)
+s  <- sort(unique(i))
+df <- data.frame(generation = 0, 
+                 abundance = n, 
+                 species = s,
+                 Pm = P_m1)
 
 for (i_gen in 1:100){
-  for (j in 1:1000) {
-    ix <- sample(1:1000, 1)
-    if (runif(1, 0, 1) <= spec_rate/length(i)){
-      i[ix] <- max(i) + 1
+  for (j in 1:tau) {
+    ix <- sample(1:X, 1)
+    if (runif(1, 0, 1) <= P_m1){
+      i[ix] <- sample(1:S_meta, 1)
     } else {
       i[ix] <-sample(i, 1)
     }
   }
   n <- tapply(i, as.factor(i), length)
-  n <- sort(n, decreasing = T)
-  n <- c(n, rep(0, 1000 - length(n)))
-  df2 <- data.frame(generation = i_gen, abundance = n, rank = 1:length(n))
+  s <- sort(unique(i))
+  df2 <- data.frame(generation = i_gen, 
+                    abundance = n, 
+                    species = s,
+                    Pm = P_m1)
   df <- rbind(df, df2)
 }
-
-ggplot(df, aes(x=rank, y=abundance, color=generation)) + 
-  geom_point() + 
-  scale_y_continuous(trans='log10') + 
-  scale_x_continuous(trans='log10') + 
-  scale_color_continuous(type='viridis') + 
-  xlab('Rank') + 
-  ylab('Abundance')
-  
-df3 <- data.frame(generation = 0, 
-                  fit = plot_est_RAI(df$abundance[(df$generation == 0)
-                                                  &(df$abundance > 0)]))
-for (j in 1:100){
-  df4 <- data.frame(generation = j, 
-                    fit = plot_est_RAI(df$abundance[(df$generation == j)
-                                                    &(df$abundance > 0)]))
-  df3 <- rbind(df3, df4)
-}
-
-ggplot(df3, aes(x=generation, y=fit)) + geom_point()
 
 # what happens if we run it another 100 generations, but without 
 # input from outside (no connections with other areas)?
-df$spec_rate <- spec_rate
-spec_rate <- 10
 
-for (i_gen in 1:100){
-  for (j in 1:1000) {
+for (i_gen in 101:400){
+  for (j in 1:tau) {
     ix <- sample(1:1000, 1)
-    if (runif(1, 0, 1) <= spec_rate/length(i)){
-      i[ix] <- max(i) + 1
+    if (runif(1, 0, 1) <= P_m2){
+      i[ix] <- sample(1:S_meta, 1)
     } else {
       i[ix] <-sample(i, 1)
     }
   }
   n <- tapply(i, as.factor(i), length)
-  n <- sort(n, decreasing = T)
-  n <- c(n, rep(0, 1000 - length(n)))
+  s <- sort(unique(i))
   df2 <- data.frame(generation = i_gen, 
                     abundance = n, 
-                    rank = 1:length(n),
-                    spec_rate = spec_rate)
+                    species = s,
+                    Pm = P_m2)
   df <- rbind(df, df2)
 }
 
-df3$type <- 'withMigration'
-for (j in 1:100){
+df3 <- data.frame(generation = 0, 
+                  fit = est_RAI(df$abundance[(df$generation == 0)], 'fit'),
+                  n_species = length(df$abundance[(df$generation == 0)]),
+                  type = P_m1)
+for (j in 1:400){
   df4 <- data.frame(generation = j, 
-                    fit = plot_est_RAI(df$abundance[(df$generation == j)
-                                                    &(df$abundance > 0)&
-                                                      (df$spec_rate == spec_rate)]),
-                    type = 'withoutMigration')
+                    fit = est_RAI(df$abundance[(df$generation == j)], 'fit'),
+                    n_species = length(df$abundance[(df$generation == j)]),
+                    type = df$Pm[(df$generation == j)])
   df3 <- rbind(df3, df4)
 }
 
-ggplot(df3, aes(x=generation, y=fit)) + geom_point() + 
-  facet_wrap(vars(type))
+windows(height=4, width=4)
+ggplot(df3, aes(x=n_species, y=log(1/fit), color=type)) +
+  geom_point() + 
+  xlab('Number of species') + 
+  ylab('Fit') + 
+  theme(legend.position = 'none')
 
+df4a <- data.frame(generation=df3$generation,
+                  y = log(1/df3$fit),
+                  type = df3$type, 
+                  type2 = 'GOF')
+df4b <- data.frame(generation=df3$generation,
+                   y = df3$n_species,
+                   type = df3$type, 
+                   type2 = 'Number of Species')
+df4 <- rbind(df4a, df4b)
+
+windows(height=5, width=8)
+ggplot(df4, aes(x=generation, y=y, color=type)) + 
+  geom_line(linewidth=1.2) + 
+  xlab('Generation') + 
+  ylab('') + 
+  facet_grid(rows=vars(type2), scales='free_y', 
+             switch = "y") + 
+  theme(legend.position = 'none') + 
+  theme(strip.placement = "outside")
+
+# plot SAD's of generations 100 and 200 to show the difference:
+# with predictions of METE:
+
+df5 <- data.frame(rank = c(1:length(df$generation[df$generation == 100]),
+                           1:length(df$generation[df$generation == 250])),
+                  abundance = c(sort(df$abundance[df$generation == 100],
+                                     decreasing=T),
+                                sort(df$abundance[df$generation == 250], 
+                                     decreasing = T)),
+                  estAbundance = c(est_RAI(df$abundance[(df$generation==100)], 
+                                           'estimates'),
+                                   est_RAI(df$abundance[(df$generation==250)], 
+                                             'estimates')),
+                  generation = paste('Generation', 
+                                     df$generation[df$generation %in% c(100, 250)]))
+
+windows(height=4, width=8)  
+ggplot(df5, 
+       aes(x=rank, y=abundance)) + 
+  geom_point(size=2) + 
+  geom_line(linewidth=1.2) + 
+  geom_line(aes(x=rank, y=estAbundance), 
+            linetype='dashed',
+            color='red',
+            size=1.2)+
+  geom_point(aes(x=rank, y=estAbundance), 
+             color='red',
+             shape=1, size=2) + 
+  scale_y_continuous(trans='log10') +
+  scale_x_continuous(trans='log10') +
+  theme(legend.position = 'none') + 
+  xlab('Rank') + 
+  ylab('Abundance') + 
+  facet_wrap(vars(as.factor(generation)))
+
+windows(height=6, width=6) 
+p1 <- ggplot(df, 
+       aes(x=generation, y=abundance, color=as.factor(species))) + 
+  geom_line(linewidth=1.2) + 
+  theme(legend.position = 'none') + 
+  xlab('Generation') + 
+  ylab('Abundance') + 
+  xlim(c(50, 100)) + 
+  ylim(c(0, 100))
+p2 <- ggplot(df, 
+       aes(x=generation, y=abundance, color=as.factor(species))) + 
+  geom_line(linewidth=1.2) + 
+  theme(legend.position = 'none') + 
+  xlab('Generation') + 
+  ylab('Abundance') + 
+  xlim(c(200, 250))
+ggarrange(p1+ rremove("xlab"), p2, nrow=2, ncol=1)
