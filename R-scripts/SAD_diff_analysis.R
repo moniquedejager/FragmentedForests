@@ -2,24 +2,67 @@
 # data and METE estimations
 
 library(ggplot2)
-library(lme4)
 
-df <- read.table(paste('./results/SAD differences per Pm/SAD_dif_', 0, '.txt'), 
-                 header =T)
-for (i in 1:10/100){
-  df <- rbind(df, 
-              read.table(paste('./results/SAD differences per Pm/SAD_dif_', i, '.txt'), 
-                    header =T))
+list = list.files(path = './results/SAD differences per Pm' ,
+                 full.names=TRUE,recursive=TRUE)
+
+df <- read.table(list[1], header =T)
+lx <- unlist(
+  strsplit(
+    unlist(
+      strsplit(
+        unlist(
+          strsplit(list[1], '_')), '=')), '.txt'))
+df$Pm1 <- as.numeric(lx[4])
+df$X   <- as.numeric(lx[8])
+
+for (i in 2:length(list)){
+  dfa <- read.table(list[i], header =T)
+  lx <- unlist(
+    strsplit(
+      unlist(
+        strsplit(
+          unlist(
+            strsplit(list[i], '_')), '=')), '.txt'))
+  dfa$Pm1 <- as.numeric(lx[4])
+  dfa$X   <- as.numeric(lx[8])
+  
+  df <- rbind(df, dfa)
 }
 
-ggplot(df[df$generation == 175,], 
+ggplot(df[df$generation == 200,], 
+       aes(x=rank, 
+           y=difference/abundance, 
+           color=as.factor(X))) +
+  #geom_point() + 
+  geom_line() + 
+  scale_x_continuous(trans='log10') + 
+  facet_wrap(vars(Pm)) 
+  xlim(c(0, 20))  
+  theme(legend.position = 'none')
+
+windows(height=10, width=15)
+ggplot(df[df$Pm == 0,], 
        aes(x=rank, 
            y=abs(difference), 
            color=as.factor(generation))) +
   geom_point() + 
   geom_line() + 
-  facet_wrap(vars(Pm)) +
-  xlim(c(0, 20))
+  facet_wrap(vars(generation)) +
+  xlim(c(0, 20)) + 
+  theme(legend.position = 'none')
+
+windows(height=10, width=15)
+ggplot(df[df$Pm == 0.03,], 
+       aes(x=rank, 
+           y=abs(difference), 
+           color=as.factor(generation))) +
+  geom_point() + 
+  geom_line() + 
+  facet_wrap(vars(generation)) +
+  xlim(c(0, 20)) + 
+  theme(legend.position = 'none')
+
 
 df$diff_transformed <- log(abs(df$difference)+1) - 1
 df$diff_transformed[df$difference < 0] <- 
@@ -48,7 +91,18 @@ for (iPm in unique(df$Pm)){
     }
   }
 }
- 
+
+ggplot(df3[df3$generation %in% 175:185,], 
+       aes(x=rank, 
+           y=abs(ddif), 
+           color=as.factor(generation))) +
+  geom_point() + 
+  geom_line() + 
+  facet_wrap(vars(Pm)) +
+  xlim(c(0, 20)) + 
+    theme(legend.position = 'none')
+
+
 ggplot(df3[df3$generation > 0,], 
        aes(x=rank, 
            y=log(abs(ddif)+1), 
@@ -67,3 +121,5 @@ summary(mod)
 mod0 <- glm(y~1, data=df3[(df3$rank <= 200),],family='poisson')
 # McFadden’s R-Squared = 1 – (log likelihoodmodel / log likelihoodnull)
 r2 <- 1 - (logLik(mod) / logLik(mod0))
+
+

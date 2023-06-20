@@ -10,12 +10,11 @@
 
 SAD_diff_per_Pm <- function(P_m2){
   # Parameters:
-  tau    <- 1000 # number of replacements per generation
   P_m1   <- 0.05 # Initial probability of dispersal from metacommunity 
   #P_m2   <- 0.01 # Pm after fragmentation
   S_meta <- 1000 # number of species in the metacommunity
-  X      <- 1000 # number of cells in the local community that 
-  #can each hold one individual
+  X      <- 100 # number of cells in the local community 
+  tau    <- X    # number of replacements per generation
   nGens1 <- 100  # number of generations with the initial Pm
   nGens2 <- 100  # number of generations with the second Pm
   
@@ -30,26 +29,33 @@ SAD_diff_per_Pm <- function(P_m2){
   df2 <- data.frame(rank = 1:length(df$generation[df$generation == 150]),
                     generation = df$generation[df$generation == 150],
                     difference = est_RAI(df$abundance[(df$generation==150)], 
-                                         'differences'))
+                                         'differences'),
+                    abundance = sort(df$abundance[df$generation == 150],
+                                       decreasing=T))
   
   for (gen in 151:200){
     df2a <- data.frame(rank = 1:length(df$generation[df$generation == gen]),
                        generation = df$generation[df$generation == gen],
                        difference = est_RAI(df$abundance[(df$generation==gen)], 
-                                            'differences'))
+                                            'differences'),
+                       abundance = sort(df$abundance[df$generation == gen],
+                                        decreasing=T))
     df2 <- rbind(df2, df2a)
   }
   
   df2$Pm <- P_m2
-  write.table(df2, 
-              paste('./results/SAD differences per Pm/SAD_dif_', P_m2, '.txt'), 
-              append=F, col.names = T, row.names = F)
   
+  filename <- paste('./results/SAD differences per Pm/SAD_dif_Pm1=', P_m1,
+                    '_Pm2=', P_m2, 
+                    '_X=', X, '.txt', sep='')
+  write.table(df2, 
+              filename,
+              append=F, col.names = T, row.names = F)
 }
 
 library(parallel)
 nCores  <- 11
 cl      <- makeCluster(nCores)
-P_m2    <- 0:10/100
+P_m2    <- 0:10/1000
 results <- parSapply(cl, P_m2, SAD_diff_per_Pm)
 stopCluster(cl)
