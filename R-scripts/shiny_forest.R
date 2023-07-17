@@ -32,21 +32,19 @@ ui <- fluidPage(
       # Input: Slider for the number of subpopulations to generate ----
       sliderInput("n",
                   "Number of subpopulations:",
-                  value = 100,
+                  value = 25,
                   min = 1,
                   max = 1000),
       
-      # br() element to introduce extra vertical spacing ----
       br(),
       
       # Input: Slider for the dispersal probability ----
       sliderInput("Pm",
                   "Dispersal probability:",
-                  value = 0.5,
+                  value = 0.1,
                   min = 0,
                   max = 1),
       
-      # br() element to introduce extra vertical spacing ----
       br(),
       
       # Input: Slider for the number of individuals per subcommunity ----
@@ -54,12 +52,33 @@ ui <- fluidPage(
                   "Number of individuals per subcommunity:",
                   value = 500,
                   min = 100,
-                  max = 1000)
+                  max = 1000),
+      
+      br(),
+      
+      # Input: Slider for the number of species in the metacommunity ----
+      sliderInput("S_meta",
+                  "Number of species in the metacommunity:",
+                  value = 5000,
+                  min = 100,
+                  max = 10000)
     ),
     
     # Main panel for displaying outputs ----
-    mainPanel("Map of the shiny forest",
-              plotOutput("map")
+    mainPanel(
+      
+      "Map of the shiny forest",
+      plotOutput("map"),
+      
+      br(),
+      
+      "Species' rank abundance distributions",
+      plotOutput("SAD"),
+      
+      br(),
+      
+      "Species-area relation",
+      plotOutput("SpeciesArea")
     )
   )
 )
@@ -74,6 +93,7 @@ server <- function(input, output, session) {
     rv$n     <- input$n 
     rv$Pm    <- input$Pm
     rv$n_ind <- input$n_individuals
+    rv$S_meta<- input$S_meta
     rv$t     <- 0
     
     isolate({
@@ -97,14 +117,19 @@ server <- function(input, output, session) {
       rv$species <- matrix(0, rv$n_ind, rv$n)
       rv$nspecies <- rep(0, rv$n)
       
-      rv$S_meta <- nrow(rv$species)
-      
       # the first individual always comes from the metacommunity:
       # (the number represents the species)
       for (j in 1:rv$n){
         rv$species[1, j] <- sample(1:rv$S_meta, 1)
         rv$nspecies[j] <- length(unique(rv$species[,j])) - 1
       }
+      
+      # 3 subcommunities to follow in SAD-plot:
+      # first one = bottom-left
+      # center one
+      # last one = top right
+      rv$plot_comm <- c(1, round(rv$n/2), rv$n)
+      rv$plot_name <- c('Bottom-left', 'Center', 'Top right')
     })
   })
   
@@ -114,56 +139,62 @@ server <- function(input, output, session) {
     autoInvalidate()
     isolate({
       if (rv$run) {
-        rv$t <- rv$t + 1
-        r    <- runif(rv$n)
-        
-        # using the cumulative probability distribution, we calculate the 
-        # distance from which the new individual should approximately come:
-        d <- log(r)/log(rv$Pm)
-        
-        # per cell, select one of the subcommunities (or the metacommunity) 
-        # closest to this distance
-        if (sum(rv$species[,1] > 0) == rv$n_ind){
-          for (j in 1:rv$n) {
-            dist <- sqrt((rv$x[j] - rv$x)^2 + (rv$y[j] - rv$y)^2)
-            closest <- (1:length(rv$x))[abs(d[j] - dist) == min(abs(d[j] - dist))]
-            chosen <- sample(closest, 1)
-            
-            # does the chosen subcommunity exist, or is it part of the 
-            # meta community?
-            if (chosen <= rv$n) {
-              # it is a subcommunity, randomly select an individual to reproduce
-              specs <- rv$species[,chosen]
-              specs <- rep(specs[specs > 0], 2)
-              rv$species[sample(1:rv$n_ind, 1),j] <- sample(specs, 1)
-            } else {
-              # choose an individual from the metacommunity:
-              rv$species[sample(1:rv$n_ind, 1), j] <- sample(1:rv$S_meta, 1)
-            }
-            rv$nspecies[j] <- length(unique(rv$species[,j])) - 1
-          }
-        } else {
+        for (t in 1:rv$n_ind){
+          rv$species_new <- rv$species
+          
+          rv$t <- rv$t + 1
+          r    <- runif(rv$n)
+          
+          # using the cumulative probability distribution, we calculate the 
+          # distance from which the new individual should approximately come:
+          d <- log(r)/log(rv$Pm)
+          
           # per cell, select one of the subcommunities (or the metacommunity) 
-          # closest to this distance 
-          i <- sum(rv$species[,1] > 0) + 1
-          for (j in 1:rv$n) {
-            dist <- sqrt((rv$x[j] - rv$x)^2 + (rv$y[j] - rv$y)^2)
-            closest <- (1:length(rv$x))[abs(d[j] - dist) == min(abs(d[j] - dist))]
-            chosen <- sample(closest, 1)
+          # closest to this distance
+          if (sum(rv$species[,1] > 0) == rv$n_ind){
             
-            # does the chosen subcommunity exist, or is it part of the 
-            # meta community?
-            if (chosen <= rv$n) {
-              # it is a subcommunity, randomly select an individual to reproduce
-              specs <- rv$species[,chosen]
-              specs <- rep(specs[specs > 0], 2)
-              rv$species[i,j] <- sample(specs, 1)
-            } else {
-              # choose an individual from the metacommunity:
-              rv$species[i, j] <- sample(1:rv$S_meta, 1)
+            for (j in 1:rv$n) {
+              dist <- sqrt((rv$x[j] - rv$x)^2 + (rv$y[j] - rv$y)^2)
+              closest <- (1:length(rv$x))[abs(d[j] - dist) == min(abs(d[j] - dist))]
+              chosen <- sample(closest, 1)
+              
+              # does the chosen subcommunity exist, or is it part of the 
+              # meta community?
+              if (chosen <= rv$n) {
+                # it is a subcommunity, randomly select an individual to reproduce
+                specs <- rv$species[,chosen]
+                specs <- rep(specs[specs > 0], 2)
+                rv$species_new[sample(1:rv$n_ind, 1),j] <- sample(specs, 1)
+              } else {
+                # choose an individual from the metacommunity:
+                rv$species_new[sample(1:rv$n_ind, 1), j] <- sample(1:rv$S_meta, 1)
+              }
+              rv$nspecies[j] <- length(unique(rv$species[,j])) - 1
             }
-            rv$nspecies[j] <- length(unique(rv$species[,j])) - 1
+          } else {
+            # per cell, select one of the subcommunities (or the metacommunity) 
+            # closest to this distance 
+            i <- sum(rv$species[,1] > 0) + 1
+            for (j in 1:rv$n) {
+              dist <- sqrt((rv$x[j] - rv$x)^2 + (rv$y[j] - rv$y)^2)
+              closest <- (1:length(rv$x))[abs(d[j] - dist) == min(abs(d[j] - dist))]
+              chosen <- sample(closest, 1)
+              
+              # does the chosen subcommunity exist, or is it part of the 
+              # meta community?
+              if (chosen <= rv$n) {
+                # it is a subcommunity, randomly select an individual to reproduce
+                specs <- rv$species[,chosen]
+                specs <- rep(specs[specs > 0], 2)
+                rv$species_new[i,j] <- sample(specs, 1)
+              } else {
+                # choose an individual from the metacommunity:
+                rv$species_new[i, j] <- sample(1:rv$S_meta, 1)
+              }
+              rv$nspecies[j] <- length(unique(rv$species[,j])) - 1
+            }
           }
+          rv$species <- rv$species_new
         }
       }
     })
@@ -182,8 +213,69 @@ server <- function(input, output, session) {
                           name='Number of species') + 
       theme_void() + 
       theme(legend.position = 'right') + 
-      labs(caption = paste('t = ', rv$t, sep=''), 
+      labs(caption = paste('gen = ', rv$t / rv$n_ind, sep=''), 
            x='', y='')
+  })
+  
+  output$SAD <- renderPlot({
+    # first, create a rank abundance distribution of all subcommunities 
+    # combined:
+    spec <- as.vector(rv$species)
+    spec      <- spec[spec > 0]
+    abundance <- sort(tapply(spec, as.factor(spec), length), decreasing = T)
+    df <- data.frame(Rank = 1:length(abundance), 
+                     Abundance = abundance, 
+                     Subcommunity = 'All', 
+                     Type = 'All')
+    
+    # rank abundance plot of four random subcommunities:
+    for (i in 1:3){
+      spec      <- rv$species[,rv$plot_comm[i]]
+      spec      <- spec[spec > 0]
+      abundance <- sort(tapply(spec, as.factor(spec), length), decreasing = T)
+      df2 <- data.frame(Rank = 1:length(abundance), 
+                       Abundance = abundance, 
+                       Subcommunity = rv$plot_name[i], 
+                       Type = 'Subcommunities')
+      df <- rbind(df, df2)
+    }
+    if (length(df2$Rank) > 1) {
+    ggplot(df, aes(x=Rank, y=Abundance, color=Subcommunity)) + 
+      geom_line() + 
+      facet_wrap(vars(Type), ncol=2, scales='free') + 
+      scale_y_continuous(trans='log10') + 
+      scale_color_discrete(type='viridis', name='Subcommunity')
+    }
+  })
+  
+  output$SpeciesArea <- renderPlot({
+    # create a species-area plot:
+    # number of species per area size
+    df <- data.frame(area_size = 1, nspecies = rv$nspecies) 
+    
+    for (i in 2:10){
+      x2 <- round(rv$x[1:rv$n]/i)
+      y2 <- round(rv$y[1:rv$n]/i)
+      
+      areas <- paste(x2, y2, sep='-')
+      area_size <- tapply(areas, areas, length)
+      
+      nspecies <- vector(length=0)
+      for (j in sort(unique(areas))){
+        spec <- rv$species[,areas == j]
+        nspecies <- c(nspecies, length(unique(spec[spec > 0])))
+      }
+      df2 <- data.frame(area_size = area_size,
+                        nspecies = nspecies)
+      df <- rbind(df, df2)
+    }
+    
+    ggplot(df, aes(x=area_size, y=nspecies)) + 
+      geom_point() + 
+      scale_x_continuous(trans='log10') + 
+      scale_y_continuous(trans='log10') + 
+      xlab('Area size (number of cells)') + 
+      ylab('Number of species')
   })
 }
 
