@@ -1,6 +1,7 @@
 # Shiny forest:
 
-# te doen: SAD plots toevoegen...
+# te doen: bij het simuleren van veel subcommunities, moet er parallel gerekend 
+# worden!!
 
 library(shiny)
 # Launches an app, with the app's source code included
@@ -86,6 +87,7 @@ ui <- fluidPage(
 # Define server logic for random distribution app ----
 server <- function(input, output, session) {
   library(ggplot2)
+  library(matrixStats)
   
   rv <- reactiveValues(run = F)
   
@@ -139,42 +141,65 @@ server <- function(input, output, session) {
     autoInvalidate()
     isolate({
       if (rv$run) {
-        for (t in 1:rv$n_ind){
-          rv$species_new <- rv$species
+        rv$species_new <- rv$species
+        
+        rv$t <- rv$t + 1
+        
+        # per cell, select one of the subcommunities (or the metacommunity) 
+        # closest to this distance
+        if (sum(rv$species[,1] > 0) == rv$n_ind){
           
-          rv$t <- rv$t + 1
-          r    <- runif(rv$n)
-          
-          # using the cumulative probability distribution, we calculate the 
-          # distance from which the new individual should approximately come:
-          d <- log(r)/log(rv$Pm)
-          
+          for (j in 1:rv$n) {
+            
+            # using the cumulative probability distribution, we calculate the 
+            # distance from which the new individual should approximately come,
+            # per old individual that will be replaced:
+            r    <- runif(rv$n_ind)
+            d <- log(r)/log(rv$Pm)
+            
+            # use matrices to randomly choose one of the cells closest to d: 
+            dist      <- sqrt((rv$x[j] - rv$x)^2 + (rv$y[j] - rv$y)^2)
+            dist_mat  <- matrix(dist, ncol=rv$n_ind, nrow=length(dist))
+            d_mat     <- t(matrix(d, nrow=rv$n_ind, ncol=length(dist)))
+            dist_mat2 <- abs(dist_mat - d_mat) + 
+              matrix(runif(rv$n_ind*length(dist), 0, 0.001), 
+                     ncol=rv$n_ind, nrow=length(dist))
+            min_mat <- t(matrix(colMins(dist_mat2), 
+                                nrow=rv$n_ind, ncol=length(dist)))
+            
+            chosen <- matrix(1:length(dist), 
+                             ncol=rv$n_ind, 
+                             nrow=length(dist))[dist_mat2 - min_mat == 0]
+            
+            # select individuals from the metacommunity for those individuals
+            # with chosen > rv$n:
+            rv$species_new[chosen > rv$n, j] <- sample(1:rv$S_meta, 
+                                                       sum(chosen > rv$n), 
+                                                       replace = T)
+            
+            # for the others, select a random individual from the chosen 
+            # subcommunity:
+            chosen_communities <- rv$species[,chosen[chosen <= rv$n]]
+            nr <- nrow(chosen_communities)
+            nc <- ncol(chosen_communities)
+            rand_individuals   <- matrix(runif(nr*nc),nr,nc) * 
+              (chosen_communities > 0)
+            max_rand <- t(matrix(colMaxs(rand_individuals), nc, nr))
+            specs <- chosen_communities[rand_individuals == max_rand]
+            rv$species_new[chosen <= rv$n, j] <- specs
+            
+            spec <- unique(rv$species_new[,j])
+            rv$nspecies[j] <- length(spec[spec > 0]) 
+          }
+          rv$species <- rv$species_new
+        } else {
           # per cell, select one of the subcommunities (or the metacommunity) 
           # closest to this distance
-          if (sum(rv$species[,1] > 0) == rv$n_ind){
+          for (i in 2:rv$n_ind) {
+            rv$species_new <- rv$species
+            r    <- runif(rv$n)
+            d <- log(r)/log(rv$Pm)
             
-            for (j in 1:rv$n) {
-              dist <- sqrt((rv$x[j] - rv$x)^2 + (rv$y[j] - rv$y)^2)
-              closest <- (1:length(rv$x))[abs(d[j] - dist) == min(abs(d[j] - dist))]
-              chosen <- sample(closest, 1)
-              
-              # does the chosen subcommunity exist, or is it part of the 
-              # meta community?
-              if (chosen <= rv$n) {
-                # it is a subcommunity, randomly select an individual to reproduce
-                specs <- rv$species[,chosen]
-                specs <- rep(specs[specs > 0], 2)
-                rv$species_new[sample(1:rv$n_ind, 1),j] <- sample(specs, 1)
-              } else {
-                # choose an individual from the metacommunity:
-                rv$species_new[sample(1:rv$n_ind, 1), j] <- sample(1:rv$S_meta, 1)
-              }
-              rv$nspecies[j] <- length(unique(rv$species[,j])) - 1
-            }
-          } else {
-            # per cell, select one of the subcommunities (or the metacommunity) 
-            # closest to this distance 
-            i <- sum(rv$species[,1] > 0) + 1
             for (j in 1:rv$n) {
               dist <- sqrt((rv$x[j] - rv$x)^2 + (rv$y[j] - rv$y)^2)
               closest <- (1:length(rv$x))[abs(d[j] - dist) == min(abs(d[j] - dist))]
@@ -193,8 +218,8 @@ server <- function(input, output, session) {
               }
               rv$nspecies[j] <- length(unique(rv$species[,j])) - 1
             }
+            rv$species <- rv$species_new
           }
-          rv$species <- rv$species_new
         }
       }
     })
@@ -213,7 +238,7 @@ server <- function(input, output, session) {
                           name='Number of species') + 
       theme_void() + 
       theme(legend.position = 'right') + 
-      labs(caption = paste('gen = ', rv$t / rv$n_ind, sep=''), 
+      labs(caption = paste('gen = ', rv$t, sep=''), 
            x='', y='')
   })
   
@@ -234,17 +259,17 @@ server <- function(input, output, session) {
       spec      <- spec[spec > 0]
       abundance <- sort(tapply(spec, as.factor(spec), length), decreasing = T)
       df2 <- data.frame(Rank = 1:length(abundance), 
-                       Abundance = abundance, 
-                       Subcommunity = rv$plot_name[i], 
-                       Type = 'Subcommunities')
+                        Abundance = abundance, 
+                        Subcommunity = rv$plot_name[i], 
+                        Type = 'Subcommunities')
       df <- rbind(df, df2)
     }
     if (length(df2$Rank) > 1) {
-    ggplot(df, aes(x=Rank, y=Abundance, color=Subcommunity)) + 
-      geom_line() + 
-      facet_wrap(vars(Type), ncol=2, scales='free') + 
-      scale_y_continuous(trans='log10') + 
-      scale_color_discrete(type='viridis', name='Subcommunity')
+      ggplot(df, aes(x=Rank, y=Abundance, color=Subcommunity)) + 
+        geom_line() + 
+        facet_wrap(vars(Type), ncol=2, scales='free') + 
+        scale_y_continuous(trans='log10') + 
+        scale_color_discrete(type='viridis', name='Subcommunity')
     }
   })
   
